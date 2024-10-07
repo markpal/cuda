@@ -128,16 +128,24 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                     if(c3<=ub) {
                       register int z = B[-c2 + c3][c3];
                      // for (int c3 = max(16 * c1, -16 * c0 + 16 * c1 + c2); c3 <= min(min(N - 1, 16 * c1 + 15), -16 * c0 + 16 * c1 + c2 + 15); c3 += 1) {   // parallel loop threads
-                          for (int c4 = 0; c4 < c2; c4 += 1) // serial
+                      int bound = (c2 / bb) *bb -1;
+
+                      // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+                      for (int c4 = 0; c4 < bound; c4 += 1) // serial
                               // tu  mozna zmniejszyc o 1  -c2 + c3 + c4
                              // policz tylko dla srodkowych blokow w x i y czyli bez bloku sj, si
                               z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ - 1] + B[-c2 + c3 + c4 + 1 /* !!! */ - 1][c3], z);
+                      // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+
 
                           // przelicz bez y, tylko dla 1 watka ostatna kolumne i rzad
                           if(threadIdx.y ==0){
-                           int c4 = c2-1;
+                           int c4 = bound;
                            z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
-                          // przelicz biezacy blok
+                            // przelicz biezacy blok
+
+                            for (int c4 = bound+1; c4 < c2; c4 += 1)
+                              z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ - 1] + B[-c2 + c3 + c4 + 1 /* !!! */ - 1][c3], z);
 
                           B[-c2 + c3][c3] = max(z,
                                                 B[-c2 + c3 + 1][c3 - 1] + _paired(seqq[-c2 + c3], seqq[c3]));
