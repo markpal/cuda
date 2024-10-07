@@ -145,7 +145,7 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                             // przelicz biezacy blok
 
                             for (int c4 = bound+1; c4 < c2; c4 += 1)
-                              z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ - 1] + B[-c2 + c3 + c4 + 1 /* !!! */ - 1][c3], z);
+                              z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
 
                           B[-c2 + c3][c3] = max(z,
                                                 B[-c2 + c3 + 1][c3 - 1] + _paired(seqq[-c2 + c3], seqq[c3]));
