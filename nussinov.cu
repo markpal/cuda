@@ -6,8 +6,10 @@
 #include <cstring> // for strcpy
 #include <string>
 
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 4
 int N = 10000;
+
+using namespace std;
 
 typedef struct {
   int width;
@@ -127,17 +129,28 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                       register int z = B[-c2 + c3][c3];
                      // for (int c3 = max(16 * c1, -16 * c0 + 16 * c1 + c2); c3 <= min(min(N - 1, 16 * c1 + 15), -16 * c0 + 16 * c1 + c2 + 15); c3 += 1) {   // parallel loop threads
                           for (int c4 = 0; c4 < c2; c4 += 1) // serial
-                              z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
+                              // tu  mozna zmniejszyc o 1  -c2 + c3 + c4
+                             // policz tylko dla srodkowych blokow w x i y czyli bez bloku sj, si
+                              z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ - 1] + B[-c2 + c3 + c4 + 1 /* !!! */ - 1][c3], z);
+
+                          // przelicz bez y, tylko dla 1 watka ostatna kolumne i rzad
+                          if(threadIdx.y ==0){
+                           int c4 = c2-1;
+                           z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
+                          // przelicz biezacy blok
+
                           B[-c2 + c3][c3] = max(z,
                                                 B[-c2 + c3 + 1][c3 - 1] + _paired(seqq[-c2 + c3], seqq[c3]));
+                          }
                       }
 
                 } else {
                     //  #pragma omp parallel for
+                   // printf("%i %i\n", _sj, _si);
                   int lb = bb * c1 + c2;
                   int ub = min(N - 1, bb * c1 + bb-1);
                   int c3 = threadIdx.x + lb;  // threadIdx.x
-                  if(c3<=ub) {
+                  if(c3<=ub) {    // mozna dac ostra wtedy policzy  bez czwartej
                   //for (int c3 = 16 * c1 + c2; c3 <= min(N - 1, 16 * c1 + 15); c3 += 1) {   // parallel loop threads
                     register int z = B[-c2 + c3][c3];
                         for (int c4 = 0; c4 < c2; c4 += 1) {  // serial
@@ -145,7 +158,8 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                         }
                         B[-c2 + c3][c3] = max(z,
                                               B[-c2 + c3 + 1][c3 - 1] + _paired(seqq[-c2 + c3], seqq[c3]));
-
+                        if(c1==0)
+                        printf("%i %i %i\n", -c2+c3, c3, B[-c2 + c3][c3]);
                     }
 
                 }
@@ -162,10 +176,11 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 
 int main() {
 
-  string seq = "GUACGUACGUACGUACGUACGUACGUACGUAC";
+  //string seq = "GUACGUACGUACGUACGUACGUACGUACGUAC";
+  string seq = "GUACGUACGUACGUACGUAC";
   int N = seq.length();
 
-  int n = N, i,j;
+  int n = N, i,j,k;
 
   char *seqq = new char[N+1];
   std::strcpy(seqq, seq.c_str());          // Copy the string content   // use random data for given big N, comment this
@@ -185,13 +200,17 @@ int main() {
   for(i=0; i<N; i++) {
     for(j=0; j<N; j++){
       S[i][j] = INT_MIN;
+      S_CPU[i][j] = INT_MIN;
     }
   }
   for(i=0; i<N; i++){
     S[i][i] = 0;
+    S_CPU[i][i] = 0;
     if(i+1 < N) {
       S[i][i + 1] = 0;
       S[i+1][i] = 0;
+      S_CPU[i][i+1] = 0;
+      S_CPU[i+1][i] = 0;
     }
   }
   // -----------------------------
@@ -269,6 +288,29 @@ int main() {
   cout << "\n";
   }
   cout << endl;
+
+ // kontrola z cpu
+  for (i = N-1; i >= 0; i--) {
+    for (j = i+1; j < N; j++) {
+      for (k = 0; k < j-i; k++) {
+        S_CPU[i][j] = max(S_CPU[i][k+i] + S_CPU[k+i+1][j], S_CPU[i][j]);
+      }
+
+      S_CPU[i][j] = max(S_CPU[i][j], S_CPU[i+1][j-1] + paired(seqq[i],seqq[j]));
+
+      //  cout << i << "|" << j << "|" << seqq[i] << seqq[j] << "|" << S[i][j] << " , " << paired(seqq[i],seqq[j])  << "| " << S[i+1][j-1]<< endl;
+
+    }
+  }
+
+
+  for(i=0; i<N; i++)
+    for(j=0; j<N; j++)
+      if(S[i][j] != S_CPU[i][j]){
+        cout << "error" << endl;
+        exit(0);
+      }
+
 
   delete[] S;
   delete[] S_CPU;
