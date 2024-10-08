@@ -128,10 +128,14 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                     if(c3<=ub) {
                       register int z = B[-c2 + c3][c3];
                      // for (int c3 = max(16 * c1, -16 * c0 + 16 * c1 + c2); c3 <= min(min(N - 1, 16 * c1 + 15), -16 * c0 + 16 * c1 + c2 + 15); c3 += 1) {   // parallel loop threads
-                      int bound = (c2 / bb) *bb -1;
+                      int bound = ((c2) / bb) *bb -1;
+                    //  bound = bound < 0 ? 0 : bound;
+                      //printf("%i %i\n", bound, _si);
 
                       // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
-                      for (int c4 = 0; c4 < bound; c4 += 1) // serial
+                      if(1==1){
+
+                      for (int c4 = bb-1; c4 < bound; c4 += 1) // serial
                               // tu  mozna zmniejszyc o 1  -c2 + c3 + c4
                              // policz tylko dla srodkowych blokow w x i y czyli bez bloku sj, si
                               z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ - 1] + B[-c2 + c3 + c4 + 1 /* !!! */ - 1][c3], z);
@@ -144,12 +148,25 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                            z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
                             // przelicz biezacy blok
 
+                        for (int c4 = 0; c4 < bb-1; c4 += 1)
+                          z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
+
                             for (int c4 = bound+1; c4 < c2; c4 += 1)
                               z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
 
                           B[-c2 + c3][c3] = max(z,
                                                 B[-c2 + c3 + 1][c3 - 1] + _paired(seqq[-c2 + c3], seqq[c3]));
                           }
+                      }
+
+                      else
+                        {
+                        for (int c4 = 0; c4 < c2; c4 += 1) {  // serial
+                          z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3],  z);
+                        }
+                        B[-c2 + c3][c3] = max(z,
+                                              B[-c2 + c3 + 1][c3 - 1] + _paired(seqq[-c2 + c3], seqq[c3]));
+                        }
                       }
 
                 } else {
@@ -166,8 +183,8 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                         }
                         B[-c2 + c3][c3] = max(z,
                                               B[-c2 + c3 + 1][c3 - 1] + _paired(seqq[-c2 + c3], seqq[c3]));
-                        if(c1==0)
-                        printf("%i %i %i\n", -c2+c3, c3, B[-c2 + c3][c3]);
+                        //if(c1==0)
+                        //printf("%i %i %i\n", -c2+c3, c3, B[-c2 + c3][c3]);
                     }
 
                 }
@@ -186,6 +203,7 @@ int main() {
 
   //string seq = "GUACGUACGUACGUACGUACGUACGUACGUAC";
   string seq = "GUACGUACGUACGUACGUAC";
+  seq = "AGUCGAUCAGUCGUAUCGUACGCUAGC";
   int N = seq.length();
 
   int n = N, i,j,k;
@@ -315,8 +333,9 @@ int main() {
   for(i=0; i<N; i++)
     for(j=0; j<N; j++)
       if(S[i][j] != S_CPU[i][j]){
+        cout << i <<" " <<  j << ":" << S[i][j] << " " << S_CPU[i][j] << endl;
         cout << "error" << endl;
-        exit(0);
+
       }
 
 
