@@ -6,47 +6,11 @@
 #include <cstring> // for strcpy
 #include <string>
 
-#define BLOCK_SIZE 4
-int N = 9192;
+#define BLOCK_SIZE 16
+int N = 4096;
 
 using namespace std;
 
-typedef struct {
-  int width;
-  int height;
-  int stride;
-  int** elements;
-} Matrix;
-
-
-__device__ float GetElement(const Matrix A, int row, int col)
-{
-  return A.elements[row][col];
-}
-
-//__device__
-__device__ Matrix GetSubMatrix(int **B, int row, int col, int N, int coloffset=0)
-{
-  Matrix Asub;
-  Asub.width    = BLOCK_SIZE;
-  Asub.height   = BLOCK_SIZE;
-  Asub.stride   = N;
-  Asub.elements = new int*[BLOCK_SIZE];
-
-  if(col <= row){
-  //  cout << "wrong block identifiers, col > row !";
-      printf("wrong block identifiers %i %i ", row, col);
- //   exit(1);
-  }
-
-  for(int i=0; i < BLOCK_SIZE; i++){
-    Asub.elements[i] = &B[BLOCK_SIZE * row+i][BLOCK_SIZE * col + coloffset];
-    //  std::cout << BLOCK_SIZE * row+i << "," << BLOCK_SIZE * col << std::endl;
-    }
-  return Asub;
-}
-
-using namespace std;
 
 // -------------------------------------------------- pairing
 int paired(char a1, char a2)
@@ -80,23 +44,26 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
         __shared__ int C[BLOCK_SIZE][BLOCK_SIZE];
 
 
-
-
-
         if(c1 <= min((N - 1) / bb, (N + c0 - 2 )/ bb))
         //for (int c1 = c0; c1 <= min((N - 1) / 16, (N + c0 - 2 )/ 16); c1 += 1) // parallel loop  blocks
         {
-            int _sj = c1-c0;
-            int _si = c1;
+            register int _sj = c1-c0;
+            register int _si = c1;
+
 
            // printf("%i %i\n", _sj, _si);
 
             C[threadIdx.y][threadIdx.x] = 0;
-if(1==0)
+
          for (int m = _sj+1; m < _si; ++m) {
 
-              Matrix Asub = GetSubMatrix(B, _sj, m, N, -1);
-              Matrix Bsub = GetSubMatrix(B, m, _si, N);
+              int * A_elements[BLOCK_SIZE];
+              int * B_elements[BLOCK_SIZE];
+
+              for(int i=0; i < BLOCK_SIZE; i++){
+                A_elements[i] = &B[BLOCK_SIZE * _sj+i][BLOCK_SIZE * m -1];
+                B_elements[i] = &B[BLOCK_SIZE * m +i][BLOCK_SIZE * _si];
+              }
 
               __shared__ int As[BLOCK_SIZE][BLOCK_SIZE];
               __shared__ int Bs[BLOCK_SIZE][BLOCK_SIZE];
@@ -108,8 +75,8 @@ if(1==0)
              if(row < BLOCK_SIZE && col < BLOCK_SIZE){
 
               int Cvalue = 0;
-              As[row][col] =  GetElement(Asub, row, col);
-              Bs[row][col] = GetElement(Bsub, row, col);
+              As[row][col] =  A_elements[row][col];
+              Bs[row][col] = B_elements[row][col];
 
 
               __syncthreads();
@@ -123,14 +90,8 @@ if(1==0)
 
              C[row][col] = max(C[row][col], Cvalue);
             }
-            delete Asub.elements;
-            delete Bsub.elements;
+
            }
-
-
-
-
-
 
             for (int c2 = max(1, bb * c0 - bb - 1);
                  c2 <= min(bb * c0 + bb - 1, N + bb * c0 - bb * c1 - 1); c2 += 1) { // serial loop
@@ -225,8 +186,8 @@ if(1==0)
 
 int main() {
 
-  //string seq = "GUACGUACGUACGUACGUACGUACGUACGUAC";
-  string seq = "GUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUAC";
+  string seq = "GUACGUACGUACGUACGUACGUACGUACGUAC";
+  //string seq = "GUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUAC";
   //string seq = "GUACGUACGUACGUACGUAC";
   //seq = "AGUCGAUCAGUCGUAUCGUACGCUAGC";
   //int N = seq.length();
@@ -316,10 +277,6 @@ int main() {
 
   }
 
-
-
-
-
   cudaMemcpy(&S[0][0], flat_d_S, n * n * sizeof(int), cudaMemcpyDeviceToHost);
 
   double end_time = omp_get_wtime();
@@ -342,21 +299,8 @@ int main() {
     cout << "\n";
   }
   cout << endl;
-/*
-  Matrix C_SUB =  GetSubMatrix(S , 0, 2, N, -1);
 
-  for(i=0; i<BLOCK_SIZE; i++){
-    for(j=0; j<BLOCK_SIZE; j++){
-      if(C_SUB.elements[i][j] < 0)
-        cout << "";
-      else
-        cout << C_SUB.elements[i][j];
-      cout << "\t";
-   }
-  cout << "\n";
-  }
-  cout << endl;
-*/
+
  // kontrola z cpu
   for (i = N-1; i >= 0; i--) {
     for (j = i+1; j < N; j++) {
@@ -365,8 +309,6 @@ int main() {
       }
 
       S_CPU[i][j] = max(S_CPU[i][j], S_CPU[i+1][j-1] + paired(seqq[i],seqq[j]));
-
-      //  cout << i << "|" << j << "|" << seqq[i] << seqq[j] << "|" << S[i][j] << " , " << paired(seqq[i],seqq[j])  << "| " << S[i+1][j-1]<< endl;
 
     }
   }
