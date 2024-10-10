@@ -7,7 +7,7 @@
 #include <string>
 
 #define BLOCK_SIZE 16
-int N = 4096;
+int N = 20480;
 
 using namespace std;
 
@@ -121,10 +121,6 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                         z = max(z, C[_j][_i]);
 
                         //cout << _si << " | " << _sj << endl;
-
-
-
-
 
                           // przelicz bez y, tylko dla 1 watka ostatna kolumne i rzad
                           if(threadIdx.y ==0){
