@@ -7,7 +7,7 @@
 #include <string>
 
 #define BLOCK_SIZE 4
-int N = 10000;
+int N = 9192;
 
 using namespace std;
 
@@ -19,17 +19,29 @@ typedef struct {
 } Matrix;
 
 
+__device__ float GetElement(const Matrix A, int row, int col)
+{
+  return A.elements[row][col];
+}
+
 //__device__
-Matrix GetSubMatrix(int **B, int row, int col, int N)
+__device__ Matrix GetSubMatrix(int **B, int row, int col, int N, int coloffset=0)
 {
   Matrix Asub;
   Asub.width    = BLOCK_SIZE;
   Asub.height   = BLOCK_SIZE;
   Asub.stride   = N;
   Asub.elements = new int*[BLOCK_SIZE];
+
+  if(col <= row){
+  //  cout << "wrong block identifiers, col > row !";
+      printf("wrong block identifiers %i %i ", row, col);
+ //   exit(1);
+  }
+
   for(int i=0; i < BLOCK_SIZE; i++){
-    Asub.elements[i] = &B[BLOCK_SIZE * row+i][BLOCK_SIZE * col];
-      std::cout << BLOCK_SIZE * row+i << "," << BLOCK_SIZE * col << std::endl;
+    Asub.elements[i] = &B[BLOCK_SIZE * row+i][BLOCK_SIZE * col + coloffset];
+    //  std::cout << BLOCK_SIZE * row+i << "," << BLOCK_SIZE * col << std::endl;
     }
   return Asub;
 }
@@ -65,57 +77,59 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 {
         int c1 = blockIdx.x + c0;
         int bb = BLOCK_SIZE;
-        extern __shared__ int S[BLOCK_SIZE][BLOCK_SIZE];
+        __shared__ int C[BLOCK_SIZE][BLOCK_SIZE];
+
+
+
+
 
         if(c1 <= min((N - 1) / bb, (N + c0 - 2 )/ bb))
         //for (int c1 = c0; c1 <= min((N - 1) / 16, (N + c0 - 2 )/ 16); c1 += 1) // parallel loop  blocks
         {
-            int _si = c1*bb;
-            int _sj = _si-c0*bb;
+            int _sj = c1-c0;
+            int _si = c1;
 
-            /*
-            for (int m = 0; m < (N / BLOCK_SIZE); ++m) {
+           // printf("%i %i\n", _sj, _si);
 
+            C[threadIdx.y][threadIdx.x] = 0;
+if(1==0)
+         for (int m = _sj+1; m < _si; ++m) {
 
-        // Get sub-matrix Asub of A
-               Matrix Asub = GetSubMatrix(A, blockRow, m);
-        // Get sub-matrix Bsub of B
-        Matrix Bsub = GetSubMatrix(B, m, blockCol);
-        // Shared memory used to store Asub and Bsub respectively
-        __shared__ float As[BLOCK_SIZE][BLOCK_SIZE];
-        __shared__ float Bs[BLOCK_SIZE][BLOCK_SIZE];
-        // Load Asub and Bsub from device memory to shared memory
-        // Each thread loads one element of each sub-matrix
-        As[row][col] = GetElement(Asub, row, col);
-        Bs[row][col] = GetElement(Bsub, row, col);
-        // Synchronize to make sure the sub-matrices are loaded
-        // before starting the computation
-        __syncthreads();
-        // Multiply Asub and Bsub together
-        for (int e = 0; e < BLOCK_SIZE; ++e)
-            Cvalue += As[row][e] * Bs[e][col];
-        // Synchronize to make sure that the preceding
-        // computation is done before loading two new
-        // sub-matrices of A and B in the next iteration
-        __syncthreads();
-    }
-    // Write Csub to device memory
-    // Each thread writes one element
-    SetElement(Csub, row, col, Cvalue);
-*/
+              Matrix Asub = GetSubMatrix(B, _sj, m, N, -1);
+              Matrix Bsub = GetSubMatrix(B, m, _si, N);
+
+              __shared__ int As[BLOCK_SIZE][BLOCK_SIZE];
+              __shared__ int Bs[BLOCK_SIZE][BLOCK_SIZE];
+
+             // Thread row and column
+             int row = threadIdx.y;
+             int col = threadIdx.x;
+
+             if(row < BLOCK_SIZE && col < BLOCK_SIZE){
+
+              int Cvalue = 0;
+              As[row][col] =  GetElement(Asub, row, col);
+              Bs[row][col] = GetElement(Bsub, row, col);
 
 
+              __syncthreads();
 
-          //int i = c1*16;
-          //int j = i-c0*16;
+              for (int e = 0; e < BLOCK_SIZE; ++e)
+              {
+                  Cvalue = max(As[row][e] + Bs[e][col], Cvalue);
+              }
 
-        //    for(int j=0; j<bb; j++)
-        //      for(int i=0; i<N; i++)
-            ////      S[j*N + i] = B[j+_sj][i];
+              __syncthreads();
+
+             C[row][col] = max(C[row][col], Cvalue);
+            }
+            delete Asub.elements;
+            delete Bsub.elements;
+           }
 
 
-            // shared block from i to i+16-1, j to j+16-1
-            //cout << "\n -------- NEW BLOCK CORNER " << j << "," << i << endl;
+
+
 
 
             for (int c2 = max(1, bb * c0 - bb - 1);
@@ -135,11 +149,20 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                       // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
                       if(1==1){
 
-                      for (int c4 = bb-1; c4 < bound; c4 += 1) // serial
+                      // if(1==0)
+                    //  for (int c4 = bb-1; c4 < bound; c4 += 1) // serial
                               // tu  mozna zmniejszyc o 1  -c2 + c3 + c4
                              // policz tylko dla srodkowych blokow w x i y czyli bez bloku sj, si
-                              z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ - 1] + B[-c2 + c3 + c4 + 1 /* !!! */ - 1][c3], z);
-                      // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
+                             // z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ - 1] + B[-c2 + c3 + c4 + 1 /* !!! */ - 1][c3], z);
+                      // -----------------------------------------------------------------
+                         int _j = (-c2+c3) % BLOCK_SIZE;
+                        int _i = c3 % BLOCK_SIZE;
+                        z = max(z, C[_j][_i]);
+
+                        //cout << _si << " | " << _sj << endl;
+
+
+
 
 
                           // przelicz bez y, tylko dla 1 watka ostatna kolumne i rzad
@@ -148,10 +171,10 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                            z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
                             // przelicz biezacy blok
 
-                        for (int c4 = 0; c4 < bb-1; c4 += 1)
+                        for (int c4 = 0; c4 < bb-1; c4 += 1)  // trojkat calkiem z lewej
                           z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
 
-                            for (int c4 = bound+1; c4 < c2; c4 += 1)
+                            for (int c4 = bound+1; c4 < c2; c4 += 1)   // obecny blok
                               z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
 
                           B[-c2 + c3][c3] = max(z,
@@ -191,6 +214,7 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
             }
         }
 
+
 }
 
 
@@ -202,9 +226,11 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 int main() {
 
   //string seq = "GUACGUACGUACGUACGUACGUACGUACGUAC";
-  string seq = "GUACGUACGUACGUACGUAC";
-  seq = "AGUCGAUCAGUCGUAUCGUACGCUAGC";
-  int N = seq.length();
+  string seq = "GUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUACGUAC";
+  //string seq = "GUACGUACGUACGUACGUAC";
+  //seq = "AGUCGAUCAGUCGUAUCGUACGCUAGC";
+  //int N = seq.length();
+
 
   int n = N, i,j,k;
 
@@ -262,19 +288,35 @@ int main() {
 
   int numBlocks = (n) / BLOCK_SIZE;
   int bb = BLOCK_SIZE;
+  dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
 
   //numBlocks = min((N - 1) / 16, (N + c0 - 2 )/ 16) - c0;
   for (int c0 = 0; c0 <= (N - 1)/bb; c0 += 1)  // serial loop
   {
     //for (int c1 = c0; c1 <= min((N - 1) / 16, (N + c0 - 2 )/ 16); c1 += 1) // parallel loop  blocks
     numBlocks = min((N - 1) / bb, (N + c0 - 2 )/ bb) - c0 + 1;
-    myKernel<<<numBlocks, BLOCK_SIZE>>>(d_S, n, c0, d_sequence);
+    myKernel<<<numBlocks, dimBlock>>>(d_S, n, c0, d_sequence);
+
+
+    cudaError_t errSync  = cudaDeviceSynchronize();
+
+    // Sprawdzenie błędów związanych z wywołaniem kernela (np. błędne parametry wywołania)
+    cudaError_t errAsync = cudaGetLastError();
+
+    // Sprawdzenie, czy pojawiły się błędy
+    if (errSync != cudaSuccess) {
+      printf("Cuda synchronization error: %s\n", cudaGetErrorString(errSync));
+      exit(1);
+    }
+
+    if (errAsync != cudaSuccess) {
+      printf("Cuda asynchronous kernel error: %s\n", cudaGetErrorString(errAsync));
+      exit(1);
+    }
+
   }
 
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("CUDA error on kernel launch: %s\n", cudaGetErrorString(err));
-  }
+
 
 
 
@@ -288,7 +330,7 @@ int main() {
 
 
   cout << endl << endl;
-  if(1==1)
+  if(1==0)
   for(i=0; i<N; i++){
     for(j=0; j<N; j++){
       if(S[i][j] < 0)
@@ -300,8 +342,8 @@ int main() {
     cout << "\n";
   }
   cout << endl;
-
-  Matrix C_SUB =  GetSubMatrix(S , 1, 1, N);
+/*
+  Matrix C_SUB =  GetSubMatrix(S , 0, 2, N, -1);
 
   for(i=0; i<BLOCK_SIZE; i++){
     for(j=0; j<BLOCK_SIZE; j++){
@@ -314,7 +356,7 @@ int main() {
   cout << "\n";
   }
   cout << endl;
-
+*/
  // kontrola z cpu
   for (i = N-1; i >= 0; i--) {
     for (j = i+1; j < N; j++) {
@@ -335,6 +377,7 @@ int main() {
       if(S[i][j] != S_CPU[i][j]){
         cout << i <<" " <<  j << ":" << S[i][j] << " " << S_CPU[i][j] << endl;
         cout << "error" << endl;
+        exit(1);
 
       }
 
