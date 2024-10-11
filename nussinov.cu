@@ -10,7 +10,7 @@
 
 
 #define BLOCK_SIZE 16
-int N = 128;
+int N = 64;
 
 using namespace std;
 
@@ -132,8 +132,7 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                       // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
                       if(1==1){
 
-                  //   for (int c4 = bb-1; c4 < bound; c4 += 1) // serial
-                            // z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ - 1] + B[-c2 + c3 + c4 + 1 /* !!! */ - 1][c3], z);
+
                       // -----------------------------------------------------------------
 
                         //printf("%i %i %i %i\n", -c2+c3, c3, _j, _i);
@@ -148,25 +147,41 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                           int _i = c3 % BLOCK_SIZE;
 
                           //if(_si - _sj - 1 >= 1)
-                            z = max(z, C[_j][_i]);
-
-                            int bound = ((c2) / bb) *bb -1;
-                           // bound = _si*bb - 1;
-
-                            int c4 = bound;
 
 
-                          if(_si - _sj > 1){
-                            z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
+                          for (int c4 = 0; c4 < bb-1; c4 += 1)  // blocks 0 (triangles)
+                            z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
+
+                          z = max(z, C[_j][_i]);
+
+                            int bound;
+                            if(c2 >= 2*bb){
+                             bound = ((c2) / bb) *bb -1;
+
+                              int c4 = bound; // calculate the rest row from third column it start appears
+                              z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
+                          //  if(bound < 0)
+                           //   bound = 0;
+
+
+                      //    for (int c4 = bb-1; c4 < bound; c4 += 1) // serial
+                       //     z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ ] + B[-c2 + c3 + c4 + 1 /* !!! */ ][c3], z);
+
+
+                       //   if(_si - _sj > 0){
+
+                         //   }
                             if(threadIdx.x ==0)
-                              printf("%i %i %i\n", bound, _sj, _si);
-                            bound = 0;
-                            }
+                             printf("%i %i %i %i\n", bound, _sj, _si, c2);
+                         //   bound = 0;
+                          //  }
                             // column block
+                            }
+                            else
+                              bound = bb-2;
 
 
-                        for (int c4 = 0; c4 < bb-1; c4 += 1)  // blocks 0 (triangles)
-                          z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
+
 
                         for (int c4 = bound+1; c4 < c2; c4 += 1)   // obecny blok
                           z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
@@ -222,7 +237,7 @@ int main() {
  // string seq = "UCGCUACCAUUGCUUCUAGACCUACGAAAUAGUCUCAUCUCUACGGCAGUAGUGCAUCUGUGUCGCGCUGUUCGUGAACCGAGACGUUGCAAGUCUUGUGUCAUUUAGGCGUAUGCACUGCUCUCCCU";
    string seq = "GUACGUACGUACGUACGUAC";
   //seq = "AGUCGAUCAGUCGUAUCGUACGCUAGC";
-  seq = "ACAUACACACUAAGUCAUGCAAACGUAAUUUGAGCUGAUGCCCAGUACGCCCCAGGUCCCUUGG";
+  seq = "CUGGUUUAUGUCACCCAGCAGCAGACCCUCCUUUACCGAAAGAUGAUGCUCGUAUUAUUGUACG";
   int N = seq.length();
 
 
