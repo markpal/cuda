@@ -8,8 +8,9 @@
 #include <ctime>     // dla time()
 
 
-#define BLOCK_SIZE 4
-int N = 64;
+
+#define BLOCK_SIZE 16
+int N = 128;
 
 using namespace std;
 
@@ -44,16 +45,13 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
         int c1 = blockIdx.x + c0;
         int bb = BLOCK_SIZE;
         __shared__ int C[BLOCK_SIZE][BLOCK_SIZE];
-        C[threadIdx.y][threadIdx.x] = 0;
+
 
         if(c1 <= min((N - 1) / bb, (N + c0 - 2 )/ bb))
         //for (int c1 = c0; c1 <= min((N - 1) / 16, (N + c0 - 2 )/ 16); c1 += 1) // parallel loop  blocks
         {
             int _sj = c1-c0;
             int _si = c1;
-
-
-           // printf("%i %i\n", _sj, _si);
 
 
 
@@ -64,23 +62,20 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
               // printf("!!! BLOK %i %i | Poprzedni A %i %i oraz B %i %i !!! \n", _sj, _si, _sj, m, m, _si);
 
                }
-
+           // Thread row and column
                int row = threadIdx.y;
                int col = threadIdx.x;
 
               __shared__ int * A_elements[BLOCK_SIZE];
               __shared__ int * B_elements[BLOCK_SIZE];
 
-           //   for(int i=0; i < BLOCK_SIZE; i++){
-                A_elements[row] = &B[BLOCK_SIZE * _sj+row][BLOCK_SIZE * m -1];
-                B_elements[row] = &B[BLOCK_SIZE * m +row][BLOCK_SIZE * _si];
-             // }
+              for(int i=0; i < BLOCK_SIZE; i++){
+                A_elements[i] = &B[BLOCK_SIZE * _sj+i][BLOCK_SIZE * m -1];
+                B_elements[i] = &B[BLOCK_SIZE * m +i][BLOCK_SIZE * _si];
+              }
 
               __shared__ int As[BLOCK_SIZE][BLOCK_SIZE];
               __shared__ int Bs[BLOCK_SIZE][BLOCK_SIZE];
-
-             // Thread row and column
-
 
              if(row < BLOCK_SIZE && col < BLOCK_SIZE){
 
@@ -138,7 +133,7 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                       if(1==1){
 
                   //   for (int c4 = bb-1; c4 < bound; c4 += 1) // serial
-                            //  z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ - 1] + B[-c2 + c3 + c4 + 1 /* !!! */ - 1][c3], z);
+                            // z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ - 1] + B[-c2 + c3 + c4 + 1 /* !!! */ - 1][c3], z);
                       // -----------------------------------------------------------------
 
                         //printf("%i %i %i %i\n", -c2+c3, c3, _j, _i);
@@ -152,20 +147,29 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                           int _j = (-c2+c3) % BLOCK_SIZE;
                           int _i = c3 % BLOCK_SIZE;
 
-                          if(_si - _sj - 1 >= 1)
+                          //if(_si - _sj - 1 >= 1)
                             z = max(z, C[_j][_i]);
 
                             int bound = ((c2) / bb) *bb -1;
+                           // bound = _si*bb - 1;
+
                             int c4 = bound;
 
+
+                          if(_si - _sj > 1){
                             z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
+                            if(threadIdx.x ==0)
+                              printf("%i %i %i\n", bound, _sj, _si);
+                            bound = 0;
+                            }
                             // column block
+
 
                         for (int c4 = 0; c4 < bb-1; c4 += 1)  // blocks 0 (triangles)
                           z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
 
                         for (int c4 = bound+1; c4 < c2; c4 += 1)   // obecny blok
-                          z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
+                          z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
 
                         B[-c2 + c3][c3] = max(z,
                                                 B[-c2 + c3 + 1][c3 - 1] + _paired(seqq[-c2 + c3], seqq[c3]));
@@ -218,7 +222,9 @@ int main() {
  // string seq = "UCGCUACCAUUGCUUCUAGACCUACGAAAUAGUCUCAUCUCUACGGCAGUAGUGCAUCUGUGUCGCGCUGUUCGUGAACCGAGACGUUGCAAGUCUUGUGUCAUUUAGGCGUAUGCACUGCUCUCCCU";
    string seq = "GUACGUACGUACGUACGUAC";
   //seq = "AGUCGAUCAGUCGUAUCGUACGCUAGC";
- // int N = seq.length();
+  seq = "ACAUACACACUAAGUCAUGCAAACGUAAUUUGAGCUGAUGCCCAGUACGCCCCAGGUCCCUUGG";
+  int N = seq.length();
+
 
 
   int n = N, i,j,k;
@@ -339,7 +345,7 @@ int main() {
   cout << endl;
 
 
- // kontrola z cpu
+ // kontrola z cpu  original
   for (i = N-1; i >= 0; i--) {
     for (j = i+1; j < N; j++) {
       for (k = 0; k < j-i; k++) {
@@ -350,6 +356,8 @@ int main() {
 
     }
   }
+
+
 
 
   for(i=0; i<N; i++)
