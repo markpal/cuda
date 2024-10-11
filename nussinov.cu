@@ -10,7 +10,7 @@
 
 
 #define BLOCK_SIZE 16
-int N = 64;
+int N = 512;
 
 using namespace std;
 
@@ -45,6 +45,7 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
         int c1 = blockIdx.x + c0;
         int bb = BLOCK_SIZE;
         __shared__ int C[BLOCK_SIZE][BLOCK_SIZE];
+        int diags = N / BLOCK_SIZE;
 
 
         if(c1 <= min((N - 1) / bb, (N + c0 - 2 )/ bb))
@@ -155,27 +156,13 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                           z = max(z, C[_j][_i]);
 
                             int bound;
-                            if(c2 >= 2*bb){
-                             bound = ((c2) / bb) *bb -1;
+                            if(_si == diags-1){   // last column of blocks
+                              int column = (diags - 1)*bb - 1;
+                              z = max(B[-c2 + c3][column] + B[column+1][c3], z);
 
-                              int c4 = bound; // calculate the rest row from third column it start appears
-                              z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
-                          //  if(bound < 0)
-                           //   bound = 0;
+                           // if(threadIdx.x ==0)
+                            // printf("%i %i %i %i\n", bound, _sj, _si, c2);
 
-
-                      //    for (int c4 = bb-1; c4 < bound; c4 += 1) // serial
-                       //     z = max(B[-c2 + c3][-c2 + c3 + c4  /* !!! */ ] + B[-c2 + c3 + c4 + 1 /* !!! */ ][c3], z);
-
-
-                       //   if(_si - _sj > 0){
-
-                         //   }
-                            if(threadIdx.x ==0)
-                             printf("%i %i %i %i\n", bound, _sj, _si, c2);
-                         //   bound = 0;
-                          //  }
-                            // column block
                             }
                             else
                               bound = bb-2;
@@ -183,7 +170,7 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 
 
 
-                        for (int c4 = bound+1; c4 < c2; c4 += 1)   // obecny blok
+                        for (int c4 = c2-bb; c4 < c2; c4 += 1)   // obecny blok
                           z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
 
                         B[-c2 + c3][c3] = max(z,
@@ -238,7 +225,7 @@ int main() {
    string seq = "GUACGUACGUACGUACGUAC";
   //seq = "AGUCGAUCAGUCGUAUCGUACGCUAGC";
   seq = "CUGGUUUAUGUCACCCAGCAGCAGACCCUCCUUUACCGAAAGAUGAUGCUCGUAUUAUUGUACG";
-  int N = seq.length();
+ // int N = seq.length();
 
 
 
@@ -361,6 +348,7 @@ int main() {
 
 
  // kontrola z cpu  original
+  //if(1==0)
   for (i = N-1; i >= 0; i--) {
     for (j = i+1; j < N; j++) {
       for (k = 0; k < j-i; k++) {
@@ -380,7 +368,7 @@ int main() {
       if(S[i][j] != S_CPU[i][j]){
         cout << i <<" " <<  j << ":" << S[i][j] << " " << S_CPU[i][j] << endl;
         cout << "error" << endl;
-        //exit(1);
+        exit(1);
 
       }
 
