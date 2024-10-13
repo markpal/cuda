@@ -5,15 +5,12 @@
 #include <vector>
 #include <cstring> // for strcpy
 #include <string>
-#include <ctime>     // dla time()
+#include <ctime>     // for time()
 
-
-
-#define BLOCK_SIZE 16
-int N = 512;
+#define BLOCK_SIZE 32
+int N = 1024;
 
 using namespace std;
-
 
 // -------------------------------------------------- pairing
 int paired(char a1, char a2)
@@ -45,8 +42,6 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
         int c1 = blockIdx.x + c0;
         int bb = BLOCK_SIZE;
         __shared__ int C[BLOCK_SIZE][BLOCK_SIZE];
-        int diags = N / BLOCK_SIZE;
-
 
         if(c1 <= min((N - 1) / bb, (N + c0 - 2 )/ bb))
         //for (int c1 = c0; c1 <= min((N - 1) / 16, (N + c0 - 2 )/ 16); c1 += 1) // parallel loop  blocks
@@ -55,14 +50,8 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
             int _si = c1;
 
 
-
          for (int m = _sj+1; m < _si; ++m) {
 
-             if((threadIdx.x == 0) && (threadIdx.y == 0))
-               {
-              // printf("!!! BLOK %i %i | Poprzedni A %i %i oraz B %i %i !!! \n", _sj, _si, _sj, m, m, _si);
-
-               }
            // Thread row and column
                int row = threadIdx.y;
                int col = threadIdx.x;
@@ -70,54 +59,28 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
               __shared__ int * A_elements[BLOCK_SIZE];
               __shared__ int * B_elements[BLOCK_SIZE];
 
-              for(int i=0; i < BLOCK_SIZE; i++){
-                A_elements[i] = &B[BLOCK_SIZE * _sj+i][BLOCK_SIZE * m -1];
-                B_elements[i] = &B[BLOCK_SIZE * m +i][BLOCK_SIZE * _si];
-              }
-
-              __shared__ int As[BLOCK_SIZE][BLOCK_SIZE];
-              __shared__ int Bs[BLOCK_SIZE][BLOCK_SIZE];
+              A_elements[row] = &B[BLOCK_SIZE * _sj+row][BLOCK_SIZE * m -1];
+              B_elements[row] = &B[BLOCK_SIZE * m +row][BLOCK_SIZE * _si];
 
              if(row < BLOCK_SIZE && col < BLOCK_SIZE){
 
               int Cvalue = 0;
-              As[row][col] =  A_elements[row][col];
-              Bs[row][col] = B_elements[row][col];
-
 
               __syncthreads();
 
               for (int e = 0; e < BLOCK_SIZE; e++)
               {
-                  Cvalue = max(As[row][e] + Bs[e][col], Cvalue);
+                  Cvalue = max(A_elements[row][e] + B_elements[e][col], Cvalue);
               }
 
               __syncthreads();
 
                 C[row][col] = max(C[row][col], Cvalue);
 
-               __syncthreads();
-               /*
-               if((threadIdx.x == 0) && (threadIdx.y == 0) && (_si - _sj - 1 >= 1) && (_sj ==0) && (_si==3)){
-                 printf("!!! BLOK %i %i | Poprzedni A %i %i oraz B %i %i !!! \n", _sj, _si, _sj, m, m, _si);
-
-                 for(int y=0; y<BLOCK_SIZE; y++){
-                   for(int x=0; x<BLOCK_SIZE; x++)
-                     printf("%i ",C[y][x]);
-                   printf("\n");
-                 }}
-               __syncthreads();*/
             }
 
            }
-   /*       if((threadIdx.x == 0) && (threadIdx.y == 0) && (_si - _sj - 1 >= 1)){
-            printf("!!! BLOK %i %i  !!! \n", _sj, _si);
-         for(int y=0; y<BLOCK_SIZE; y++){
-            for(int x=0; x<BLOCK_SIZE; x++)
-              printf("%i ",C[y][x]);
-            printf("\n");
-          }} */
-         // if(threadIdx.y ==0)
+
             for (int c2 = max(1, bb * c0 - bb - 1);
                  c2 <= min(bb * c0 + bb - 1, N + bb * c0 - bb * c1 - 1); c2 += 1) { // serial loop
                 if (c0 >= 1) {
@@ -134,47 +97,24 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                       if(1==1){
 
 
-                      // -----------------------------------------------------------------
-
-                        //printf("%i %i %i %i\n", -c2+c3, c3, _j, _i);
-
-
-                        //cout << _si << " | " << _sj << endl;
-
-                          // przelicz bez y, tylko dla 1 watka ostatna kolumne i rzad
                         if(threadIdx.y ==0){
 
                           int _j = (-c2+c3) % BLOCK_SIZE;
                           int _i = c3 % BLOCK_SIZE;
 
-                          //if(_si - _sj - 1 >= 1)
-
 
                           for (int c4 = 0; c4 < bb-1; c4 += 1)  // blocks 0 (triangles)
                             z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
 
-                          z = max(z, C[_j][_i]);
+                          z = max(z, C[_j][_i]); // middle blocks
 
-                            int bound;
-                            if(_si == diags-1){   // last column of blocks
-                              int column = (diags - 1)*bb - 1;
-                              z = max(B[-c2 + c3][column] + B[column+1][c3], z);
+                         int fragment = (c1 == N/BLOCK_SIZE-1); // last column
 
-                           // if(threadIdx.x ==0)
-                            // printf("%i %i %i %i\n", bound, _sj, _si, c2);
-
-                            }
-                            else
-                              bound = bb-2;
-
-
-
-
-                        for (int c4 = c2-bb; c4 < c2; c4 += 1)   // obecny blok
+                        for (int c4 =  c2 - bb - fragment; c4 < c2; c4 += 1)   // current tile
                           z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
 
-                        B[-c2 + c3][c3] = max(z,
-                                                B[-c2 + c3 + 1][c3 - 1] + _paired(seqq[-c2 + c3], seqq[c3]));
+                          B[-c2 + c3][c3] = max(z,
+                                               B[-c2 + c3 + 1][c3 - 1] +  _paired(seqq[-c2 + c3] , seqq[c3] ));
                           }
                       }
 
@@ -190,11 +130,10 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 
                 } else {
                     //  #pragma omp parallel for
-                   // printf("%i %i\n", _sj, _si);
                   int lb = bb * c1 + c2;
                   int ub = min(N - 1, bb * c1 + bb-1);
                   int c3 = threadIdx.x + lb;  // threadIdx.x
-                  if(c3<=ub) {    // mozna dac ostra wtedy policzy  bez czwartej
+                  if(c3<=ub) {
                   //for (int c3 = 16 * c1 + c2; c3 <= min(N - 1, 16 * c1 + 15); c3 += 1) {   // parallel loop threads
                     register int z = B[-c2 + c3][c3];
                         for (int c4 = 0; c4 < c2; c4 += 1) {  // serial
@@ -202,18 +141,14 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
                         }
                         B[-c2 + c3][c3] = max(z,
                                               B[-c2 + c3 + 1][c3 - 1] + _paired(seqq[-c2 + c3], seqq[c3]));
-                        //if(c1==0)
-                        //printf("%i %i %i\n", -c2+c3, c3, B[-c2 + c3][c3]);
+
                     }
 
                 }
             }
         }
 
-
 }
-
-
 
 
 // --------------------------------------------------
@@ -223,9 +158,8 @@ int main() {
 
  // string seq = "UCGCUACCAUUGCUUCUAGACCUACGAAAUAGUCUCAUCUCUACGGCAGUAGUGCAUCUGUGUCGCGCUGUUCGUGAACCGAGACGUUGCAAGUCUUGUGUCAUUUAGGCGUAUGCACUGCUCUCCCU";
    string seq = "GUACGUACGUACGUACGUAC";
-  //seq = "AGUCGAUCAGUCGUAUCGUACGCUAGC";
   seq = "CUGGUUUAUGUCACCCAGCAGCAGACCCUCCUUUACCGAAAGAUGAUGCUCGUAUUAUUGUACG";
- // int N = seq.length();
+ //int N = seq.length();
 
 
 
@@ -347,7 +281,7 @@ int main() {
   cout << endl;
 
 
- // kontrola z cpu  original
+ // cpu control   loop uday dynamic tiling paper
   //if(1==0)
   for (i = N-1; i >= 0; i--) {
     for (j = i+1; j < N; j++) {
@@ -359,9 +293,6 @@ int main() {
 
     }
   }
-
-
-
 
   for(i=0; i<N; i++)
     for(j=0; j<N; j++)
