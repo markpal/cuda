@@ -8,7 +8,7 @@
 #include <ctime>     // for time()
 
 #define BLOCK_SIZE 32
-int N = 5000;
+int N = 1000;
 
 using namespace std;
 
@@ -157,15 +157,14 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 
 int main() {
 
-  N += N%BLOCK_SIZE;
-//  cout << N << endl;
+
 
  // string seq = "UCGCUACCAUUGCUUCUAGACCUACGAAAUAGUCUCAUCUCUACGGCAGUAGUGCAUCUGUGUCGCGCUGUUCGUGAACCGAGACGUUGCAAGUCUUGUGUCAUUUAGGCGUAUGCACUGCUCUCCCU";
    string seq = "GUACGUACGUACGUACGUAC";
   seq = "CUGGUUUAUGUCACCCAGCAGCAGACCCUCCUUUACCGAAAGAUGAUGCUCGUAUUAUUGUACG";
+  N += BLOCK_SIZE - N % BLOCK_SIZE;
  //int N = seq.length();
- N += N % BLOCK_SIZE;
- cout << N;
+
 
   int n = N, i,j,k;
 
