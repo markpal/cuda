@@ -8,7 +8,7 @@
 #include <ctime>     // for time()
 
 #define BLOCK_SIZE 32
-int N = 1024;
+int N = 5000;
 
 using namespace std;
 
@@ -64,10 +64,11 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 
              if(row < BLOCK_SIZE && col < BLOCK_SIZE){
 
-              int Cvalue = 0;
+              register int Cvalue = 0;
 
               __syncthreads();
 
+              #pragma unroll
               for (int e = 0; e < BLOCK_SIZE; e++)
               {
                   Cvalue = max(A_elements[row][e] + B_elements[e][col], Cvalue);
@@ -156,12 +157,15 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 
 int main() {
 
+  N += N%BLOCK_SIZE;
+//  cout << N << endl;
+
  // string seq = "UCGCUACCAUUGCUUCUAGACCUACGAAAUAGUCUCAUCUCUACGGCAGUAGUGCAUCUGUGUCGCGCUGUUCGUGAACCGAGACGUUGCAAGUCUUGUGUCAUUUAGGCGUAUGCACUGCUCUCCCU";
    string seq = "GUACGUACGUACGUACGUAC";
   seq = "CUGGUUUAUGUCACCCAGCAGCAGACCCUCCUUUACCGAAAGAUGAUGCUCGUAUUAUUGUACG";
  //int N = seq.length();
-
-
+ N += N % BLOCK_SIZE;
+ cout << N;
 
   int n = N, i,j,k;
 
