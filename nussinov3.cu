@@ -8,12 +8,12 @@
 #include <ctime>     // for time()
 
 #define BLOCK_SIZE 32
-int N = 9000;
+int N = 33000;
 
 using namespace std;
 
 // -------------------------------------------------- pairing
-int paired(char a1, char a2)
+short paired(char a1, char a2)
 {
   if(a1 == 'A' && a2 == 'U')
     return 1;
@@ -27,7 +27,7 @@ int paired(char a1, char a2)
   return 0;
 }
 
-__device__ int _paired(char a, char b) {
+__device__ short _paired(char a, char b) {
   if ((a == 'A' && b == 'U') || (a == 'U' && b == 'A') || (a == 'C' && b == 'G') || (a == 'G' && b == 'C')) {
     return 1;
   }
@@ -37,62 +37,62 @@ __device__ int _paired(char a, char b) {
 // --------------------------------------------------
 // KERNEL
 
-__global__ void myKernel(int **B, int N, int c0, char* seqq)
+__global__ void myKernel(short **B, short N, short c0, char* seqq)
 {
-        int c1 = blockIdx.x + c0;
-        int bb = BLOCK_SIZE;
-        __shared__ int C[BLOCK_SIZE][BLOCK_SIZE];
+        register short c1 = blockIdx.x + c0;
+        register short bb = BLOCK_SIZE;
+        __shared__ short C[BLOCK_SIZE][BLOCK_SIZE];
 
         if(c1 <= min((N - 1) / bb, (N + c0 - 2 )/ bb))
-        //for (int c1 = c0; c1 <= min((N - 1) / 16, (N + c0 - 2 )/ 16); c1 += 1) // parallel loop  blocks
+        //for (short c1 = c0; c1 <= min((N - 1) / 16, (N + c0 - 2 )/ 16); c1 += 1) // parallel loop  blocks
         {
-            int _sj = c1-c0;
-            int _si = c1;
+            register short _sj = c1-c0;
+            register short _si = c1;
 
 
-         for (int m = _sj+1; m < _si; ++m) {
+         for (short m = _sj+1; m < _si; ++m) {
 
            // Thread row and column
-               int row = threadIdx.y;
-               int col = threadIdx.x;
+               register short row = threadIdx.y;
+               register short col = threadIdx.x;
 
-              __shared__ int * A_elements[BLOCK_SIZE];
-              __shared__ int * B_elements[BLOCK_SIZE];
+              __shared__ short * A_elements[BLOCK_SIZE];
+              __shared__ short * B_elements[BLOCK_SIZE];
 
               A_elements[row] = &B[BLOCK_SIZE * _sj+row][BLOCK_SIZE * m -1];
               B_elements[row] = &B[BLOCK_SIZE * m +row][BLOCK_SIZE * _si];
 
              if(row < BLOCK_SIZE && col < BLOCK_SIZE){
 
-              register int Cvalue = 0;
+              register short Cvalue = 0;
 
               __syncthreads();
 
               #pragma unroll
-              for (int e = 0; e < BLOCK_SIZE; e++)
+              for (short e = 0; e < BLOCK_SIZE; e++)
               {
                   Cvalue = max(A_elements[row][e] + B_elements[e][col], Cvalue);
               }
 
               __syncthreads();
 
-                C[row][col] = max(C[row][col], Cvalue);
+                C[row][col] = C[row][col] > Cvalue ? C[row][col] : Cvalue ;
 
             }
 
            }
 
-            for (int c2 = max(1, bb * c0 - bb - 1);
+            for (short c2 = max(1, bb * c0 - bb - 1);
                  c2 <= min(bb * c0 + bb - 1, N + bb * c0 - bb * c1 - 1); c2 += 1) { // serial loop
                 if (c0 >= 1) {
                     //    #pragma omp parallel for
-                    int lb = max(bb * c1, -bb * c0 + bb * c1 + c2);
-                    int ub = min(min(N - 1, bb * c1 + bb-1), -bb * c0 + bb * c1 + c2 + bb-1);
-                    int c3 = threadIdx.x+ lb;
+                    short lb = max(bb * c1, -bb * c0 + bb * c1 + c2);
+                    short ub = min(min(N - 1, bb * c1 + bb-1), -bb * c0 + bb * c1 + c2 + bb-1);
+                    short c3 = threadIdx.x+ lb;
                     if(c3<=ub) {
 
-                      register int z = B[-c2 + c3][c3];
-                     // for (int c3 = max(16 * c1, -16 * c0 + 16 * c1 + c2); c3 <= min(min(N - 1, 16 * c1 + 15), -16 * c0 + 16 * c1 + c2 + 15); c3 += 1) {   // parallel loop threads
+                      register short z = B[-c2 + c3][c3];
+                     // for (short c3 = max(16 * c1, -16 * c0 + 16 * c1 + c2); c3 <= min(min(N - 1, 16 * c1 + 15), -16 * c0 + 16 * c1 + c2 + 15); c3 += 1) {   // parallel loop threads
 
                       // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1
                       if(1==1){
@@ -100,18 +100,18 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 
                         if(threadIdx.y ==0){
 
-                          int _j = (-c2+c3) % BLOCK_SIZE;
-                          int _i = c3 % BLOCK_SIZE;
+                          short _j = (-c2+c3) % BLOCK_SIZE;
+                          short _i = c3 % BLOCK_SIZE;
 
 
-                          for (int c4 = 0; c4 < bb-1; c4 += 1)  // blocks 0 (triangles)
+                          for (short c4 = 0; c4 < bb-1; c4 += 1)  // blocks 0 (triangles)
                             z = max(B[-c2 + c3][-c2 + c3 + c4 ] + B[-c2 + c3 + c4 + 1][c3], z);
 
-                          z = max(z, C[_j][_i]); // middle blocks
+                          z = z > C[_j][_i] ? z : C[_j][_i]; // middle blocks
 
-                         int fragment = (c1 == N/BLOCK_SIZE-1); // last column
+                         short fragment = (c1 == N/BLOCK_SIZE-1); // last column
 
-                        for (int c4 =  c2 - bb - fragment; c4 < c2; c4 += 1)   // current tile
+                        for (short c4 =  c2 - bb - fragment; c4 < c2; c4 += 1)   // current tile
                           z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3], z);
 
                           B[-c2 + c3][c3] = max(z,
@@ -121,7 +121,7 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 
                       else // original generated code
                         {
-                        for (int c4 = 0; c4 < c2; c4 += 1) {  // serial
+                        for (short c4 = 0; c4 < c2; c4 += 1) {  // serial
                           z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3],  z);
                         }
                         B[-c2 + c3][c3] = max(z,
@@ -131,13 +131,13 @@ __global__ void myKernel(int **B, int N, int c0, char* seqq)
 
                 } else {
                     //  #pragma omp parallel for
-                  int lb = bb * c1 + c2;
-                  int ub = min(N - 1, bb * c1 + bb-1);
-                  int c3 = threadIdx.x + lb;  // threadIdx.x
+                  short lb = bb * c1 + c2;
+                  short ub = min(N - 1, bb * c1 + bb-1);
+                  short c3 = threadIdx.x + lb;  // threadIdx.x
                   if(c3<=ub) {
-                  //for (int c3 = 16 * c1 + c2; c3 <= min(N - 1, 16 * c1 + 15); c3 += 1) {   // parallel loop threads
-                    register int z = B[-c2 + c3][c3];
-                        for (int c4 = 0; c4 < c2; c4 += 1) {  // serial
+                  //for (short c3 = 16 * c1 + c2; c3 <= min(N - 1, 16 * c1 + 15); c3 += 1) {   // parallel loop threads
+                    register short z = B[-c2 + c3][c3];
+                        for (short c4 = 0; c4 < c2; c4 += 1) {  // serial
                             z = max(B[-c2 + c3][-c2 + c3 + c4] + B[-c2 + c3 + c4 + 1][c3],  z);
                         }
                         B[-c2 + c3][c3] = max(z,
@@ -163,40 +163,40 @@ int main() {
    string seq = "GUACGUACGUACGUACGUAC";
   seq = "CUGGUUUAUGUCACCCAGCAGCAGACCCUCCUUUACCGAAAGAUGAUGCUCGUAUUAUUGUACG";
   N += BLOCK_SIZE - N % BLOCK_SIZE;
- //int N = seq.length();
+ //short N = seq.length();
 
 
-  int n = N, i,j,k;
+ int n = N, i,j,k;
 
   char *seqq = new char[N+1];
   if(N>1) // no debug
    {
     char znaki[] = {'C', 'G', 'U', 'A'};
-    srand(static_cast<unsigned int>(time(0)));
+    srand(static_cast<unsigned short>(time(0)));
 
-    for (int i = 0; i < N; i++) {
+    for (short i = 0; i < N; i++) {
       seqq[i] = znaki[rand() % 4];  // Losowy wybór z zestawu 'C', 'G', 'U', 'A'
     }
    }
    cout << seqq << endl;
   std::strcpy(seqq, seq.c_str());          // Copy the string content   // use random data for given big N, comment this
 
-  int* flatArray_S = new int[n * n];
-  int* flatArray_S_CPU = new int[n * n];
+  short* flatArray_S = new short[n * n];
+  short* flatArray_S_CPU = new short[n * n];
 
   // Allocate 2D host array for CPU and GPU
-  int** S = new int*[n];
-  int** S_CPU = new int*[n];
+  short** S = new short*[n];
+  short** S_CPU = new short*[n];
 
-  for(int i = 0; i < n; i++) {
+  for(short i = 0; i < n; i++) {
     S[i] = &flatArray_S[i * n];
     S_CPU[i] = &flatArray_S_CPU[i * n];
   }
   // initialization
   for(i=0; i<N; i++) {
     for(j=0; j<N; j++){
-      S[i][j] = INT_MIN;
-      S_CPU[i][j] = INT_MIN;
+      S[i][j] = -1;
+      S_CPU[i][j] = -1;
     }
   }
   for(i=0; i<N; i++){
@@ -212,32 +212,32 @@ int main() {
   // -----------------------------
 
   // cuda memory allocation
-  int* flat_d_S;
-  int** d_S;
+  short* flat_d_S;
+  short** d_S;
   char *d_sequence;
 
   double start_time = omp_get_wtime();
   cudaMalloc(&d_sequence, n);
-  cudaMalloc(&flat_d_S, n * n * sizeof(int));
-  cudaMalloc(&d_S, n * sizeof(int*));
+  cudaMalloc(&flat_d_S, n * n * sizeof(short));
+  cudaMalloc(&d_S, n * sizeof(short*));
 
-  int* h_S[n];  // copy flat_d_S pointers to vector on host and copy to d_S vector of pointers
-  for(int i = 0; i < n; i++) {
+  short* h_S[n];  // copy flat_d_S pointers to vector on host and copy to d_S vector of pointers
+  for(short i = 0; i < n; i++) {
     h_S[i] = flat_d_S + i * n;
   }
-  cudaMemcpy(d_S, h_S, n * sizeof(int*), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_S, h_S, n * sizeof(short*), cudaMemcpyHostToDevice);
   cudaMemcpy(d_sequence, seqq, n, cudaMemcpyHostToDevice);
   // Copy host data to device before entering the loop
-  cudaMemcpy(flat_d_S, &S[0][0], n * n * sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(flat_d_S, &S[0][0], n * n * sizeof(short), cudaMemcpyHostToDevice);
 
-  int numBlocks = (n) / BLOCK_SIZE;
-  int bb = BLOCK_SIZE;
+  short numBlocks = (n) / BLOCK_SIZE;
+  short bb = BLOCK_SIZE;
   dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
 
   //numBlocks = min((N - 1) / 16, (N + c0 - 2 )/ 16) - c0;
-  for (int c0 = 0; c0 <= (N - 1)/bb; c0 += 1)  // serial loop
+  for (short c0 = 0; c0 <= (N - 1)/bb; c0 += 1)  // serial loop
   {
-    //for (int c1 = c0; c1 <= min((N - 1) / 16, (N + c0 - 2 )/ 16); c1 += 1) // parallel loop  blocks
+    //for (short c1 = c0; c1 <= min((N - 1) / 16, (N + c0 - 2 )/ 16); c1 += 1) // parallel loop  blocks
     numBlocks = min((N - 1) / bb, (N + c0 - 2 )/ bb) - c0 + 1;
     myKernel<<<numBlocks, dimBlock>>>(d_S, n, c0, d_sequence);
 
@@ -260,7 +260,7 @@ int main() {
 
   }
 
-  cudaMemcpy(&S[0][0], flat_d_S, n * n * sizeof(int), cudaMemcpyDeviceToHost);
+  cudaMemcpy(&S[0][0], flat_d_S, n * n * sizeof(short), cudaMemcpyDeviceToHost);
 
   double end_time = omp_get_wtime();
   double elapsed_time = end_time - start_time;
