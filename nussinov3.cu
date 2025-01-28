@@ -56,11 +56,11 @@ __global__ void myKernel(short **B, short N, short c0, char* seqq)
                register short row = threadIdx.y;
                register short col = threadIdx.x;
 
-              __shared__ short * A_elements[BLOCK_SIZE];
-              __shared__ short * B_elements[BLOCK_SIZE];
-
-              A_elements[row] = &B[BLOCK_SIZE * _sj+row][BLOCK_SIZE * m -1];
-              B_elements[row] = &B[BLOCK_SIZE * m +row][BLOCK_SIZE * _si];
+             __shared__ short A_elements[BLOCK_SIZE][BLOCK_SIZE];
+             __shared__ short B_elements[BLOCK_SIZE][BLOCK_SIZE];
+ 
+              A_elements[row][col] = B[BLOCK_SIZE * _sj+row][BLOCK_SIZE * m -1 + col];
+              B_elements[row][col] = B[BLOCK_SIZE * m +row][BLOCK_SIZE * _si + col];
 
              if(row < BLOCK_SIZE && col < BLOCK_SIZE){
 
